@@ -47,7 +47,6 @@ struct Symbol {
     n_numaux: u8,
 }
 
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
@@ -68,10 +67,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         sections.push(scnhdr);
     }
 
-    println!("[Sections]");
+    println!("\n[Sections]");
     let mut n = 0;
     for scn in sections {
-        print!("{} ", n);
+        println!("section {} ", n);
         print_scnhdr(&scn);
         n += 1;
     }
@@ -82,37 +81,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn print_filhdr(hdr: &CoffHeader) {
     println!("  magic : 0x{:x}", hdr.f_magic);
     println!("  nscns : {} ", hdr.f_nscns);
-    print!("  symptr : 0x{:06x}", hdr.f_symptr);
+    print!("  symoff : 0x{:06x}", hdr.f_symptr);
     println!("  nsyms : {}", hdr.f_nsyms);
     println!("  flags : 0x{:x}", hdr.f_flags);
 }
 
 fn print_scnhdr(scnhdr: &SectionHeader) {
+    print!("  name : ["); 
+    for c in scnhdr.s_name {
+        print!("0x{:02x} ", c);
+    }
+    print!("\x08]");
     let name = String::from_utf8(scnhdr.s_name.to_vec()).unwrap();
-    println!("name : {} {:?}", name, scnhdr.s_name);
-    // print!("  paddress : 0x{:06x}", scnhdr.s_paddr);
+    println!(" {}", name);
+    print!("  paddress : 0x{:06x}", scnhdr.s_paddr);
     print!("  vaddr : 0x{:06x}", scnhdr.s_vaddr);
     println!(" size : {}", scnhdr.s_size);
-    print!("  secptr : 0x{:06x}", scnhdr.s_scnptr);
-    print!("  relptr : 0x{:06x}", scnhdr.s_relptr);
+    print!("  scnoff : 0x{:06x}", scnhdr.s_scnptr);
+    print!("  reloff : 0x{:06x}", scnhdr.s_relptr);
     print!("  nreloc : {}", scnhdr.s_nreloc);
     println!("  flags : 0x{:06x}", scnhdr.s_flags);
 }
 
 fn print_relooc(reloc: &Relocation) {
-    print!("reloc vaddr : 0x{:06x}", reloc.r_vaddr);
+    print!("  reloc vaddr : 0x{:06x}", reloc.r_vaddr);
     print!("  symndx : {}", reloc.r_symndx);
     println!("  type : 0x{:04x}", reloc.r_type);
-
 }
 
 fn print_sym(sym: &Symbol) {
-    let name = String::from_utf8(sym.n_name.to_vec()).unwrap();
-    println!("symbol name : {} {:?}", name, sym.n_name);
-    println!("value : {:08x}", sym.n_value);
-    println!("section no :  {}", sym.n_scnum);
-    println!("type : {:04x}", sym.n_type);
-    println!("class : {:02x}", sym.n_sclass);
-    println!("numaux : {:02x}", sym.n_numaux);
+    print!("  name : ["); 
+    for c in sym.n_name {
+        print!("0x{:02x} ", c);
+    }
+    print!("\x08]");
+    if sym.n_name[0] == 0x00 {
+        let name = String::from_utf8(sym.n_name.to_vec()).unwrap();
+        println!(" {}", name);
+    } else {
+        let off = (sym.n_name[0] as u32) << 24
+            + (sym.n_name[1] as u32) << 16
+            + (sym.n_name[2] as u32) << 8
+            + (sym.n_name[3] as u32);
+        println!("symoff : {:06x}", off);
+    }
+    println!("  value : {:08x}", sym.n_value);
+    println!("  section no :  {}", sym.n_scnum);
+    println!("  type : {:04x}", sym.n_type);
+    println!("  class : {:02x}", sym.n_sclass);
+    println!("  numaux : {:02x}", sym.n_numaux);
 }
 
