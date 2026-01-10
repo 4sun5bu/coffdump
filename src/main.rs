@@ -1,10 +1,10 @@
 use std::env;
 use std::fs::File;
-use std::io::{Read, SeekFrom, BufReader, Error};
+use std::io::{Read, Seek, SeekFrom, BufReader, Error};
 use bincode::{config, Encode, Decode};
 
 #[derive(Encode, Decode, PartialEq, Debug)]
-struct CoffHeader {
+struct Header {
     f_magic: u16,
     f_nscns: u16,
     f_timdat: u32,
@@ -15,7 +15,7 @@ struct CoffHeader {
 }
 
 #[derive(Encode, Decode, PartialEq, Debug)]
-struct SectionHeader {
+struct Section {
     s_name: [u8; 8],
     s_paddr: u32,
     s_vaddr: u32,
@@ -41,7 +41,7 @@ struct Relocation {
 struct Symbol {
     n_name: [u8; 8],
     n_value: u32,
-    n_scnum: u16,
+    n_scnum: i16,
     n_type: u16,
     n_sclass: u8,
     n_numaux: u8,
@@ -57,28 +57,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut reader = BufReader::new(file);
 
     let config = bincode::config::standard().with_fixed_int_encoding().with_big_endian();
-    let hdr : CoffHeader = bincode::decode_from_reader(&mut reader, config).unwrap();
+    let hdr: Header = bincode::decode_from_reader(&mut reader, config).unwrap();
     println!("[Header]");
     print_filhdr(&hdr);
 
-    let mut sections: Vec<SectionHeader> = Vec::new();  
+    let mut sections: Vec<Section> = Vec::new();  
     for _ in 0..hdr.f_nscns {
-        let scnhdr : SectionHeader = bincode::decode_from_reader(&mut reader, config).unwrap();
+        let scnhdr: Section = bincode::decode_from_reader(&mut reader, config).unwrap();
         sections.push(scnhdr);
     }
 
     println!("\n[Sections]");
     let mut n = 0;
-    for scn in sections {
+    for scn in &sections {
         println!("section {} ", n);
-        print_scnhdr(&scn);
+        print_scnhdr(scn);
         n += 1;
     }
+
+    let mut relocs: Vec<Relocation> = Vec::new();
+    for scn in &sections {
+        reader.seek(SeekFrom::Start(scn.s_relptr as u64))?;
+        for _ in 0..scn.s_nreloc {
+           let rel: Relocation = bincode::decode_from_reader(&mut reader, config).unwrap();
+           relocs.push(rel);
+        }
+    }
+    println!("\n[Relocation infomation]");
+    print_relocinfo(&relocs);
+
+    reader.seek(SeekFrom::Start(hdr.f_symptr as u64))?;
+    let mut symbs: Vec<Symbol> = Vec::new();
+    for _ in 0..hdr.f_nsyms {
+        let sym: Symbol = bincode::decode_from_reader(&mut reader, config).unwrap();
+        symbs.push(sym);
+    }
+    println!("\n[Symbol Table]");
+    print_symtab(&symbs);
 
     Ok(())
 }
 
-fn print_filhdr(hdr: &CoffHeader) {
+fn print_filhdr(hdr: &Header) {
     println!("  magic : 0x{:x}", hdr.f_magic);
     println!("  nscns : {} ", hdr.f_nscns);
     print!("  symoff : 0x{:06x}", hdr.f_symptr);
@@ -86,7 +106,7 @@ fn print_filhdr(hdr: &CoffHeader) {
     println!("  flags : 0x{:x}", hdr.f_flags);
 }
 
-fn print_scnhdr(scnhdr: &SectionHeader) {
+fn print_scnhdr(scnhdr: &Section) {
     print!("  name : ["); 
     for c in scnhdr.s_name {
         print!("0x{:02x} ", c);
@@ -103,10 +123,16 @@ fn print_scnhdr(scnhdr: &SectionHeader) {
     println!("  flags : 0x{:06x}", scnhdr.s_flags);
 }
 
-fn print_relooc(reloc: &Relocation) {
+fn print_reloc(reloc: &Relocation) {
     print!("  reloc vaddr : 0x{:06x}", reloc.r_vaddr);
     print!("  symndx : {}", reloc.r_symndx);
     println!("  type : 0x{:04x}", reloc.r_type);
+}
+
+fn print_relocinfo(relocs: &Vec<Relocation>) {
+    for rel in relocs {
+        print_reloc(rel);
+    }
 }
 
 fn print_sym(sym: &Symbol) {
@@ -115,20 +141,25 @@ fn print_sym(sym: &Symbol) {
         print!("0x{:02x} ", c);
     }
     print!("\x08]");
-    if sym.n_name[0] == 0x00 {
+    if sym.n_name[0] != 0x00 {
         let name = String::from_utf8(sym.n_name.to_vec()).unwrap();
         println!(" {}", name);
     } else {
-        let off = (sym.n_name[0] as u32) << 24
-            + (sym.n_name[1] as u32) << 16
-            + (sym.n_name[2] as u32) << 8
-            + (sym.n_name[3] as u32);
-        println!("symoff : {:06x}", off);
+        let off = ((sym.n_name[4] as u32) << 24)
+            + ((sym.n_name[5] as u32) << 16)
+            + ((sym.n_name[6] as u32) << 8)
+            + (sym.n_name[7] as u32);
+        println!(" 0x{:06x}", off);
     }
-    println!("  value : {:08x}", sym.n_value);
-    println!("  section no :  {}", sym.n_scnum);
-    println!("  type : {:04x}", sym.n_type);
-    println!("  class : {:02x}", sym.n_sclass);
-    println!("  numaux : {:02x}", sym.n_numaux);
+    print!("  value : 0x{:08x} ", sym.n_value);
+    print!("scnum : {:2} ", sym.n_scnum);
+    print!("type : 0x{:04x} ", sym.n_type);
+    print!("class : 0x{:02x} ", sym.n_sclass);
+    println!("numaux : 0x{:02x}", sym.n_numaux);
 }
 
+fn print_symtab(syms: &Vec<Symbol>) {
+    for sym in syms {
+        print_sym(sym);
+    }
+}
