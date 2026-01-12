@@ -68,21 +68,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("\n[Sections]");
-    let mut n = 0;
+    let mut n = 1;
     for scn in &sections {
-        println!("section {} ", n);
+        println!("scnum {} ", n);
         print_scnhdr(scn);
         n += 1;
     }
 
-    let mut relocs: Vec<Relocation> = Vec::new();
+    let mut relocs: Vec<Vec<Relocation>> = Vec::new();
     for scn in &sections {
         reader.seek(SeekFrom::Start(scn.s_relptr as u64))?;
+        let mut scn_relocs: Vec<Relocation> = Vec::new();
         for _ in 0..scn.s_nreloc {
-           let rel: Relocation = bincode::decode_from_reader(&mut reader, config).unwrap();
-           relocs.push(rel);
+            let rel: Relocation = bincode::decode_from_reader(&mut reader, config).unwrap();
+            scn_relocs.push(rel);
         }
+        relocs.push(scn_relocs);
     }
+
+//    let mut relocs: Vec<Relocation> = Vec::new();
+//    for scn in &sections {
+//        reader.seek(SeekFrom::Start(scn.s_relptr as u64))?;
+//        for _ in 0..scn.s_nreloc {
+//           let rel: Relocation = bincode::decode_from_reader(&mut reader, config).unwrap();
+//           relocs.push(rel);
+//        }
+//    }
     println!("\n[Relocation infomation]");
     print_relocinfo(&relocs);
 
@@ -125,13 +136,18 @@ fn print_scnhdr(scnhdr: &Section) {
 
 fn print_reloc(reloc: &Relocation) {
     print!("  reloc vaddr : 0x{:06x}", reloc.r_vaddr);
-    print!("  symndx : {}", reloc.r_symndx);
+    print!("  symndx : {:2}", reloc.r_symndx);
     println!("  type : 0x{:04x}", reloc.r_type);
 }
 
-fn print_relocinfo(relocs: &Vec<Relocation>) {
-    for rel in relocs {
-        print_reloc(rel);
+fn print_relocinfo(relocs: &Vec<Vec<Relocation>>) {
+    let mut scnno = 1;
+    for scn in relocs{
+        for rel in scn {
+            print!("  scnum : {}", scnno);
+            print_reloc(rel);
+        }
+        scnno = scnno + 1;
     }
 }
 
